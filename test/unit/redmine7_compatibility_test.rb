@@ -31,6 +31,20 @@ class VaultRedmine7CompatibilityTest < ActiveSupport::TestCase
     assert_not key.audit_logs.first.data.to_json.include?('test-only-secret')
   end
 
+  def test_audit_json_preserves_nested_unicode_arrays_and_large_data
+    key = Vault::Password.create!(name: 'Audit payload', body: 'test-only-secret',
+      project: Project.find(1), audit_user: User.find(1))
+    fields = ['login', 'comment']
+    payload = {'nested' => {'items' => [1, true, nil, '中文🔐']}, 'comment' => '审计' * 20_000}
+    log = Vault::KeyAuditLog.create!(key: key, user: User.find(1), action: 'update',
+      fields_changed: fields, data: payload)
+    assert_equal fields, log.reload.fields_changed
+    assert_equal payload, log.data
+    assert_operator payload.to_json.bytesize, :>, 65_535
+    assert_instance_of Array, log.fields_changed
+    assert_instance_of Hash, log.data
+  end
+
   def test_metadata_edit_does_not_encrypt_file_twice
     file_name = "vault-test-#{SecureRandom.uuid}"
     path = File.join(Vault::KEYFILES_DIR, file_name)
